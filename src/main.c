@@ -1,6 +1,15 @@
 #include "part-1.h"
 #include "part-2.h"
+#include "part-3.h"
 #include "printer.h"
+
+#define PAYLOAD_SIZE 128
+char* generate_payload() {
+    char* payload = (char*) malloc(PAYLOAD_SIZE);
+    memset(payload, 'A', PAYLOAD_SIZE);
+    return payload;
+}
+
 
 int main(int argc, char** argv) {
     printf("%s\n", argv[0]);
@@ -10,7 +19,7 @@ int main(int argc, char** argv) {
     }
     printf("%s\n", argv[1]);
 
-    int fd = open(argv[1], O_RDONLY);
+    int fd = open(argv[1], O_RDWR);
     if (fd == -1) {
         perror("File not found");
         return -1;
@@ -37,8 +46,6 @@ int main(int argc, char** argv) {
     int num_sections = nt_headers->FileHeader.NumberOfSections;
     lseek(fd, dos_header->e_lfanew + sizeof(IMAGE_NT_HEADERS), SEEK_SET);
     IMAGE_SECTION_HEADER** image_section_arr = get_section_arr(fd, num_sections);
-    
-
 
     // Get the section containing the import table
     IMAGE_SECTION_HEADER* import_table_section = get_section_with_import_table(nt_headers, image_section_arr, num_sections);
@@ -86,6 +93,16 @@ int main(int argc, char** argv) {
     // Cleanup
     // free(dos_header);
     // free(nt_headers);
+    //
+
+    // Testing part 3
+    printf("FD: %d\n", fd);
+    lseek(fd, dos_header->e_lfanew, SEEK_SET); // need to move to the start of IMAGE_NT_HEADERS section
+    modify_number_of_sections(fd, num_sections+1);
+    puts("Should have modified the file");
+    int cur_image_size = lseek(fd, 0, SEEK_END);
+    lseek(fd, dos_header->e_lfanew, SEEK_SET);
+    modify_size_of_image(nt_headers, fd, PAYLOAD_SIZE);
 
     return 0;
 }

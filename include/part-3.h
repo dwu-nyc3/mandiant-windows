@@ -18,7 +18,7 @@
  *
  *
  */
-int add_new_section();
+int add_new_section(int fd, IMAGE_SECTION_HEADER** section_arr, int num_sections);
 
 /*
  * @brief add a new entry to the section header
@@ -27,13 +27,13 @@ int add_new_section();
  * @param pa        location of section in the file
  *
  */
-int add_entry_to_section_headers();
+IMAGE_SECTION_HEADER* add_entry_to_section_headers(int va, int sz, int pa);
 
 /*
  * @brief modify size of image in IMAGE_OPTIONAL_HEADERS
  *
  */
-int modify_size_of_image(int fd, DWORD new_image_size);
+int modify_size_of_image(IMAGE_NT_HEADERS* nt_headers, int fd, DWORD new_image_size);
 
 /*
  * @brief nodify the number of sections in file
@@ -42,5 +42,3 @@ int modify_size_of_image(int fd, DWORD new_image_size);
  * @return success 0, -1 fail
  */
 int modify_number_of_sections(int fd, int new_num_of_sections);
-
-
