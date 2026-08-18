@@ -1,110 +1,101 @@
-#include "part-1.h"
-#include "part-2.h"
-#include "part-3.h"
-#include "printer.h"
+#include "setup.h"
 
-#define PAYLOAD_SIZE 128
-char* generate_payload() {
-    char* payload = (char*) malloc(PAYLOAD_SIZE);
-    memset(payload, 'A', PAYLOAD_SIZE);
-    return payload;
+IMAGE_DOS_HEADER* get_dos_header(FILE* fp) {
+    fseek(fp, 0, SEEK_SET);
+    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*) malloc(sizeof(IMAGE_DOS_HEADER));
+    printf("%d\n", sizeof(IMAGE_DOS_HEADER));
+
+    if (dos_header == NULL) {
+        return NULL;
+    }
+
+    int read_amnt = fread(dos_header, sizeof(IMAGE_DOS_HEADER), 1, fp);
+    printf("amount read: %d\n", read_amnt);
+    if (read_amnt == 0) {
+        return NULL;
+    }
+    return dos_header;
 }
 
+// TODO: need to work on this and figure out why i used the malloc stuff
+IMAGE_NT_HEADERS* get_nt_headers(FILE* fp) {
+
+    int magic_offset = g_dos_header->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
+    if (fseek(fp, magic_offset, SEEK_SET)) {
+        strerror(errno);
+        exit(1);
+    };
+
+    if (!fread(&g_version, sizeof(WORD), 1, fp)) {
+        strerror(errno);
+        exit(1);
+    };
+
+    printf("Magic Offset 1: %x\n", magic_offset);
+    printf("Version: %x\n", g_version);
+    if (fseek(fp, g_dos_header->e_lfanew, SEEK_SET)) {
+        strerror(errno);
+        exit(1);
+    }
+
+    IMAGE_NT_HEADERS* nt_header = (IMAGE_NT_HEADERS*)malloc(sizeof(IMAGE_NT_HEADERS));
+    if (nt_header == NULL) {
+        strerror(errno);
+        exit(1);
+    }
+
+    IMAGE_FILE_HEADER* file_header = (IMAGE_FILE_HEADER*)malloc(sizeof(IMAGE_FILE_HEADER));
+    if (file_header == NULL) {
+        strerror(errno);
+        exit(1);
+    }
+
+    // TODO: need to double check this, i think there is IMAGE_OPTIONAL_HEADER, IMAGE_OPTIONAL_HEADER64, and IMAGE_OPTIONAL_HEADER32
+    IMAGE_OPTIONAL_HEADER* optional_header = (IMAGE_OPTIONAL_HEADER64*)malloc(sizeof(IMAGE_OPTIONAL_HEADER64));
+    if (optional_header == NULL) {
+        return NULL;
+    }
+
+    fread(nt_header, sizeof(IMAGE_NT_HEADERS), 1, fp);
+    return nt_header;
+}
+
+IMAGE_SECTION_HEADER* get_section_arr(FILE* fp, unsigned int num_sections) {
+    int magic_offset = g_dos_header->e_lfanew + sizeof(IMAGE_NT_HEADERS); 
+    unsigned int mem_size = sizeof(IMAGE_SECTION_HEADER) * num_sections;
+    // inside of a .obj file -> use physical addy
+    // inside of a .exe / .dll -> use v size
+    IMAGE_SECTION_HEADER* image_section_header_arr = (IMAGE_SECTION_HEADER*) malloc(mem_size);
+    printf("%u\n", mem_size);
+    fread(image_section_header_arr, mem_size, 1, fp);
+    return image_section_header_arr;
+
+}
+
+void init_globals(FILE* fp){
+    g_dos_header = get_dos_header(fp);     
+    g_nt_headers = get_nt_headers(fp);
+    if (g_nt_headers == NULL) {
+        puts("Null NT Headers returned");
+    }
+    unsigned short num_sections = g_nt_headers->FileHeader.NumberOfSections;
+    printf("%d\n", num_sections);
+    g_section_arr = get_section_arr(fp, num_sections);
+}
 
 int main(int argc, char** argv) {
-    printf("%s\n", argv[0]);
+
     if (argv[1] == NULL) {
-        printf("No file provided\n");        
+        printf("No file was provided\n");
         return -1;
     }
-    printf("%s\n", argv[1]);
-
-    int fd = open(argv[1], O_RDWR);
-    if (fd == -1) {
-        perror("File not found");
-        return -1;
-    }
-
-    // TODO: Check if file is a Windows file
-    // how do this besides looking at just MZ / PE magic?
-    // b/c that can be faked 
-    // maybe we can just be naiive for now
-    // we might also cause a crash if we do get_dos_header on input which is too small
     
-    IMAGE_DOS_HEADER* dos_header = get_dos_header(fd);
-    
-    // move fd pointer to the start of NT_HEADER
-    lseek(fd, dos_header->e_lfanew, SEEK_SET);
-    IMAGE_NT_HEADERS* nt_headers = get_nt_headers(fd);
-    if ((dos_header->e_magic != 0x5a4d) || (nt_headers->Signature != 0x4550)) {
-        printf("Not a windows file\n"); 
+    FILE* fp = fopen(argv[1], "r+");
+    if (fp == NULL) {
+        printf("File open failed\n");
         return -1;
     }
 
-    print_dos_header(dos_header);
-    print_nt_header(nt_headers);
-    int num_sections = nt_headers->FileHeader.NumberOfSections;
-    lseek(fd, dos_header->e_lfanew + sizeof(IMAGE_NT_HEADERS), SEEK_SET);
-    IMAGE_SECTION_HEADER** image_section_arr = get_section_arr(fd, num_sections);
-
-    // Get the section containing the import table
-    IMAGE_SECTION_HEADER* import_table_section = get_section_with_import_table(nt_headers, image_section_arr, num_sections);
-    // printf("%d\n", import_table_section->VirtualAddress);
-    printf("%p\n", nt_headers);
-    printf("done!\n");
-    printf("ret addr: %p\n", import_table_section);
-    printf("%x\n", import_table_section->VirtualAddress);
-    printf("%x\n", import_table_section->PointerToRawData);
-    printf("%x\n", import_table_section->SizeOfRawData);
-    printf("image import descriptor size: %x\n", sizeof(IMAGE_IMPORT_DESCRIPTOR));
-
-    lseek(fd, import_table_section->PointerToRawData, SEEK_SET);
-    char* import_section = (char*) malloc(import_table_section->SizeOfRawData);
-    read(fd, import_section, import_table_section->SizeOfRawData);
-    IMAGE_IMPORT_DESCRIPTOR* cur_descriptor;
-    puts("Done reading!");
-    
-    printf("%p\n", import_section);
-
-    
-    lseek(fd, 0, SEEK_SET);
-
-    int va_diff;
-    int name_loc;
-    char* import_name;
-    char* import_base = import_section;
-    for (; ((IMAGE_IMPORT_DESCRIPTOR*)import_section)->OriginalFirstThunk != 0; import_section += sizeof(IMAGE_IMPORT_DESCRIPTOR)) {
-        cur_descriptor = (IMAGE_IMPORT_DESCRIPTOR*)import_section;
-        printf("%x\n", cur_descriptor->Name);
-        va_diff = cur_descriptor->Name - import_table_section->VirtualAddress;
-        printf("%d\n", va_diff);
-        import_name = import_base + va_diff;
-        printf("%s\n", import_name);
-    }
-
-    // printf("oft: %x\n", import_section[0]->OriginalFirstThunk);
-    // for (int i = 0; import_section[i]->OriginalFirstThunk != 0; i++) {
-    //     printf("i: %d\n", i);
-    //     cur_descriptor = import_section[i];
-    //     printf("oft: %x\n", cur_descriptor->OriginalFirstThunk);
-    //     break;
-    // }
-   
-    // Cleanup
-    // free(dos_header);
-    // free(nt_headers);
-    //
-
-    // Testing part 3
-    printf("FD: %d\n", fd);
-    lseek(fd, dos_header->e_lfanew, SEEK_SET); // need to move to the start of IMAGE_NT_HEADERS section
-    modify_number_of_sections(fd, num_sections+1);
-    puts("Should have modified the file");
-    int cur_image_size = lseek(fd, 0, SEEK_END);
-    lseek(fd, dos_header->e_lfanew, SEEK_SET);
-    modify_size_of_image(nt_headers, fd, PAYLOAD_SIZE);
-
-    return 0;
+    init_globals(fp);
 }
-
 
