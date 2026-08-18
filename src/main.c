@@ -21,6 +21,7 @@ IMAGE_DOS_HEADER* get_dos_header(FILE* fp) {
 IMAGE_NT_HEADERS* get_nt_headers(FILE* fp) {
 
     int magic_offset = g_dos_header->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
+    int read_amnt;
     if (fseek(fp, magic_offset, SEEK_SET)) {
         strerror(errno);
         exit(1);
@@ -56,20 +57,68 @@ IMAGE_NT_HEADERS* get_nt_headers(FILE* fp) {
         return NULL;
     }
 
-    fread(nt_header, sizeof(IMAGE_NT_HEADERS), 1, fp);
+    if ((read_amnt = fread(nt_header, sizeof(IMAGE_NT_HEADERS), 1, fp)) == 0) {
+        strerror(errno);
+        exit(1);
+    }
+    printf("Read amount%d %d\n", read_amnt, sizeof(IMAGE_NT_HEADERS));
     return nt_header;
 }
 
 IMAGE_SECTION_HEADER* get_section_arr(FILE* fp, unsigned int num_sections) {
     int magic_offset = g_dos_header->e_lfanew + sizeof(IMAGE_NT_HEADERS); 
+    if (fseek(fp, magic_offset, SEEK_SET)) {
+        strerror(errno);
+        exit(1);
+    };
+
     unsigned int mem_size = sizeof(IMAGE_SECTION_HEADER) * num_sections;
-    // inside of a .obj file -> use physical addy
-    // inside of a .exe / .dll -> use v size
     IMAGE_SECTION_HEADER* image_section_header_arr = (IMAGE_SECTION_HEADER*) malloc(mem_size);
     printf("%u\n", mem_size);
+    printf("Number of sections: %u\n", num_sections);
     fread(image_section_header_arr, mem_size, 1, fp);
     return image_section_header_arr;
 
+}
+
+/* Return the raw pointer
+    *
+    */
+IMAGE_SECTION_HEADER find_section(int findme) {
+    IMAGE_SECTION_HEADER ret = g_section_arr[ g_nt_headers->FileHeader.NumberOfSections -1 ];
+    for (int i = 0; i < g_nt_headers->FileHeader.NumberOfSections - 1; i++) {
+        printf("%x\n", g_section_arr[i].VirtualAddress);
+        if (findme >= g_section_arr[i].VirtualAddress && findme < g_section_arr[i+1].VirtualAddress) {
+            ret = g_section_arr[i];
+            break;
+        }
+    }
+    return ret;
+
+}
+
+void get_dlls(FILE* fp, IMAGE_NT_HEADERS* nt_hdr) {
+    unsigned int mem_size = sizeof(IMAGE_DATA_DIRECTORY) * 16;
+    IMAGE_DATA_DIRECTORY import_dir = nt_hdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+
+    printf("VA of import: %x\n", import_dir.VirtualAddress);
+    printf("Sz of import: %x\n", import_dir.Size);
+
+    if (fseek(fp, import_dir.VirtualAddress, SEEK_SET)) {
+        strerror(errno);
+        exit(1);
+    }
+
+    IMAGE_IMPORT_DESCRIPTOR* desc = (IMAGE_IMPORT_DESCRIPTOR*)malloc(sizeof(IMAGE_IMPORT_DESCRIPTOR));
+
+    fread(desc, sizeof(IMAGE_IMPORT_DESCRIPTOR), 1, fp);
+
+    printf("%x\n", desc->Name);
+    IMAGE_SECTION_HEADER imports = find_section(import_dir.VirtualAddress);
+    printf("Pointer to raw data: %x\n", imports.PointerToRawData);
+    printf("Pointer to raw data: %x\n", imports.SizeOfRawData);
+
+         
 }
 
 void init_globals(FILE* fp){
@@ -97,5 +146,7 @@ int main(int argc, char** argv) {
     }
 
     init_globals(fp);
+
+    get_dlls(fp, g_nt_headers);
 }
 
