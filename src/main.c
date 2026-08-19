@@ -97,6 +97,7 @@ IMAGE_SECTION_HEADER* find_section(unsigned int findme) {
 }
 
 
+
 // okay, need to modify this so that it is reading in the section so that i can use it 
 // need image entry point 
 // need a search fn 
@@ -104,12 +105,13 @@ IMAGE_SECTION_HEADER* find_section(unsigned int findme) {
 //
 void get_dlls(FILE* fp, IMAGE_NT_HEADERS* nt_hdr) {
     IMAGE_DATA_DIRECTORY import_dir = nt_hdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    unsigned int id_va = import_dir.VirtualAddress;
 
     printf("VA of import: %x\n", import_dir.VirtualAddress);
     printf("Sz of import: %x\n", import_dir.Size);
 
     IMAGE_IMPORT_DESCRIPTOR* cur = (IMAGE_IMPORT_DESCRIPTOR*)malloc(sizeof(IMAGE_IMPORT_DESCRIPTOR));
-    IMAGE_SECTION_HEADER* imports = find_section(import_dir.VirtualAddress);
+    IMAGE_SECTION_HEADER* imports = find_section(id_va);
     printf("Pointer to raw data: %x\n", imports->PointerToRawData);
     printf("Size of raw data: %x\n", imports->SizeOfRawData);
 
@@ -122,6 +124,7 @@ void get_dlls(FILE* fp, IMAGE_NT_HEADERS* nt_hdr) {
 
     fread(descriptors, imports->SizeOfRawData, 1, fp);
     char* cp = (char*)descriptors;
+    unsigned int oft, diff, val;
 
     // iterate through the image_import_descriptors
     for (int i = 0;;i++) {
@@ -129,16 +132,30 @@ void get_dlls(FILE* fp, IMAGE_NT_HEADERS* nt_hdr) {
             break;
         }
         printf("Descriptor Name: %x\n", descriptors[i].Name);
-        printf("DLL Name: %s\n", cp + (descriptors[i].Name - import_dir.VirtualAddress));
-        // fread(cur, sizeof(IMAGE_IMPORT_DESCRIPTOR), 1, fp);
+        printf("DLL Name: %s\n", cp + (descriptors[i].Name - id_va));
+        printf("Thunk: %x\n", descriptors[i].OriginalFirstThunk);
+        oft = descriptors[i].OriginalFirstThunk;
+        diff = oft - id_va;
+
+        for (int i = 0;; i+=8) {
+            val = *(int*)(cp + diff + i); // i think add 8 to this to get next ptr
+            if (val == 0x0) {break;}
+            int* ptr = cp + (val - id_va + 2);
+            printf("Ptr str: %s\n", ptr);
+        }
+        // printf("%x\n", val);
+        // int* ptr = cp + (val - id_va);
+        // for (int i = 0; ; i++) {
+        //     if (*ptr == 0x0) {
+        //         break;
+        //     }
+        //     printf("Ptr str: %s\n", ptr);
+        //     ptr += 1; 
+        // }
     }
+    // from this same section that we read, grab the function pointers using thunks 
 
-    printf("Timestamp: %x\n", cur->TimeDateStamp);
-    
-    // need raw pointer 
-    // need descriptor->Name
 }
-
 
 void init_globals(FILE* fp){
     g_dos_header = get_dos_header(fp);     
@@ -165,7 +182,7 @@ int main(int argc, char** argv) {
     }
 
     init_globals(fp);
-
     get_dlls(fp, g_nt_headers);
+
 }
 
