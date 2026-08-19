@@ -82,44 +82,63 @@ IMAGE_SECTION_HEADER* get_section_arr(FILE* fp, unsigned int num_sections) {
 }
 
 /* Return the raw pointer
-    *
+    * Need to do a NULL check upon returning 
     */
-IMAGE_SECTION_HEADER find_section(int findme) {
-    IMAGE_SECTION_HEADER ret = g_section_arr[ g_nt_headers->FileHeader.NumberOfSections -1 ];
-    for (int i = 0; i < g_nt_headers->FileHeader.NumberOfSections - 1; i++) {
+IMAGE_SECTION_HEADER* find_section(unsigned int findme) {
+    IMAGE_SECTION_HEADER* ret;
+    for (int i = 0; i < g_nt_headers->FileHeader.NumberOfSections; i++) {
         printf("%x\n", g_section_arr[i].VirtualAddress);
-        if (findme >= g_section_arr[i].VirtualAddress && findme < g_section_arr[i+1].VirtualAddress) {
-            ret = g_section_arr[i];
-            break;
+        if (findme >= g_section_arr[i].VirtualAddress && findme < (g_section_arr[i].VirtualAddress + g_section_arr[i].Misc.VirtualSize)) {
+            ret = &g_section_arr[i];
+            return ret;
         }
     }
-    return ret;
-
+    return ret; // TODO: need to handle this error 
 }
 
+
+// okay, need to modify this so that it is reading in the section so that i can use it 
+// need image entry point 
+// need a search fn 
+// need image descriptors
+//
 void get_dlls(FILE* fp, IMAGE_NT_HEADERS* nt_hdr) {
-    unsigned int mem_size = sizeof(IMAGE_DATA_DIRECTORY) * 16;
     IMAGE_DATA_DIRECTORY import_dir = nt_hdr->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
 
     printf("VA of import: %x\n", import_dir.VirtualAddress);
     printf("Sz of import: %x\n", import_dir.Size);
 
-    if (fseek(fp, import_dir.VirtualAddress, SEEK_SET)) {
+    IMAGE_IMPORT_DESCRIPTOR* cur = (IMAGE_IMPORT_DESCRIPTOR*)malloc(sizeof(IMAGE_IMPORT_DESCRIPTOR));
+    IMAGE_SECTION_HEADER* imports = find_section(import_dir.VirtualAddress);
+    printf("Pointer to raw data: %x\n", imports->PointerToRawData);
+    printf("Size of raw data: %x\n", imports->SizeOfRawData);
+
+    if (fseek(fp, imports->PointerToRawData, SEEK_SET)) {
         strerror(errno);
         exit(1);
     }
 
-    IMAGE_IMPORT_DESCRIPTOR* desc = (IMAGE_IMPORT_DESCRIPTOR*)malloc(sizeof(IMAGE_IMPORT_DESCRIPTOR));
+    IMAGE_IMPORT_DESCRIPTOR* descriptors = (IMAGE_IMPORT_DESCRIPTOR*) malloc(imports->SizeOfRawData);
 
-    fread(desc, sizeof(IMAGE_IMPORT_DESCRIPTOR), 1, fp);
+    fread(descriptors, imports->SizeOfRawData, 1, fp);
+    char* cp = (char*)descriptors;
 
-    printf("%x\n", desc->Name);
-    IMAGE_SECTION_HEADER imports = find_section(import_dir.VirtualAddress);
-    printf("Pointer to raw data: %x\n", imports.PointerToRawData);
-    printf("Pointer to raw data: %x\n", imports.SizeOfRawData);
+    // iterate through the image_import_descriptors
+    for (int i = 0;;i++) {
+        if (descriptors[i].Name == 0x0) {
+            break;
+        }
+        printf("Descriptor Name: %x\n", descriptors[i].Name);
+        printf("DLL Name: %s\n", cp + (descriptors[i].Name - import_dir.VirtualAddress));
+        // fread(cur, sizeof(IMAGE_IMPORT_DESCRIPTOR), 1, fp);
+    }
 
-         
+    printf("Timestamp: %x\n", cur->TimeDateStamp);
+    
+    // need raw pointer 
+    // need descriptor->Name
 }
+
 
 void init_globals(FILE* fp){
     g_dos_header = get_dos_header(fp);     
